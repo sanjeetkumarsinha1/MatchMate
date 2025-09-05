@@ -17,6 +17,7 @@ final class MatchCardViewModel: ObservableObject, Identifiable {
         repo.updateStatus(id: match.id, status: .accepted)
             .receive(on: DispatchQueue.main)
             .sink(receiveCompletion: { _ in }, receiveValue: { [weak self] m in
+                print("Accepted saved:", m.status.rawValue)
                 self?.match = m
             })
             .store(in: &cancellables)
@@ -26,6 +27,7 @@ final class MatchCardViewModel: ObservableObject, Identifiable {
         repo.updateStatus(id: match.id, status: .declined)
             .receive(on: DispatchQueue.main)
             .sink(receiveCompletion: { _ in }, receiveValue: { [weak self] m in
+                print("Declined saved:", m.status.rawValue)
                 self?.match = m
             })
             .store(in: &cancellables)

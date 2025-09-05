@@ -52,6 +52,8 @@ final class MatchRepository: MatchRepositoryProtocol {
                 }
                 try? self.ctx.save()
                 promise(.success(saved))
+               // print("Repo.updateStatus called id:\(id) status:\(status.rawValue) — thread: \(Thread.isMainThread ? "main" : "bg")")
+
             }
         }.eraseToAnyPublisher()
     }

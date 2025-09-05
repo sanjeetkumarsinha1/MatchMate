@@ -2,7 +2,8 @@ import Foundation
 import Combine
 
 final class MatchListViewModel: ObservableObject {
-    @Published private(set) var matches: [Match] = []
+    // stable array of card viewmodels used by the List
+    @Published var cardViewModels: [MatchCardViewModel] = []
     @Published var isLoadingPage = false
     @Published var errorMessage: String?
 
@@ -11,96 +12,109 @@ final class MatchListViewModel: ObservableObject {
     private let service: RandomUserServiceProtocol
     private let repo: MatchRepositoryProtocol
     private let reach = ReachabilitySimulator.shared
+    private var canLoadMorePages = true
 
     init(service: RandomUserServiceProtocol = RandomUserService(),
          repo: MatchRepositoryProtocol = MatchRepository()) {
         self.service = service
         self.repo = repo
         bindRepository()
-        loadCached()
+        fetchNextPageInitial()
     }
 
+    // Bind Core Data -> matches and keep cardViewModels stable (reuse by id)
     private func bindRepository() {
         repo.fetchAll()
             .receive(on: DispatchQueue.main)
             .sink { [weak self] items in
-                self?.matches = items
+                guard let self = self else { return }
+                self.syncCardViewModels(with: items)
             }
             .store(in: &cancellables)
     }
 
-    func loadCached() {
-        // triggers fetchAll via repository binding
+    // Reuse existing VMs by id; update match inside VM when available
+    private func syncCardViewModels(with matches: [Match]) {
+        var existingById = Dictionary(uniqueKeysWithValues: cardViewModels.map { ($0.id, $0) })
+        var newList: [MatchCardViewModel] = []
+
+        for match in matches {
+            if let vm = existingById[match.id] {
+                // update existing VM with new Match model (keeps identity)
+                DispatchQueue.main.async {
+                    vm.match = match
+                }
+                newList.append(vm)
+                existingById.removeValue(forKey: match.id)
+            } else {
+                // create new VM
+                let vm = MatchCardViewModel(match: match, repo: repo)
+                newList.append(vm)
+            }
+        }
+        // replace array (preserves VMs that still exist)
+        self.cardViewModels = newList
     }
 
-    func loadNextPageIfNeeded(currentItem: Match?) {
-        guard let item = currentItem else { fetchNextPage(); return }
-        let thresholdIndex = matches.index(matches.endIndex, offsetBy: -3)
-        if let idx = matches.firstIndex(where: { $0.id == item.id }), idx >= thresholdIndex {
-            fetchNextPage()
+    // Public - reset & fetch page 1
+    func fetchNextPageInitial() {
+        guard !isLoadingPage else { return }
+        isLoadingPage = true
+        currentPage = 1
+        canLoadMorePages = true
+
+        service.fetch(page: currentPage)
+            .flatMap { [weak self] remoteUsers -> AnyPublisher<[Match], Error> in
+                guard let self = self else {
+                    return Fail(error: NSError(domain: "self_nil", code: -1)).eraseToAnyPublisher()
+                }
+                return self.repo.save(remoteUsers: remoteUsers, page: self.currentPage)
+            }
+            .receive(on: DispatchQueue.main)
+            .sink { [weak self] completion in
+                guard let self = self else { return }
+                self.isLoadingPage = false
+                if case .failure(let err) = completion {
+                    self.errorMessage = err.localizedDescription
+                }
+            } receiveValue: { [weak self] _ in
+                // repo.fetchAll binding will populate cardViewModels
+            }
+            .store(in: &cancellables)
+    }
+
+    // Load next page (pagination)
+    func loadNextPageIfNeeded(currentItem: Match) {
+        guard canLoadMorePages, !isLoadingPage else { return }
+        // If currentItem is last one, fetch next page
+        if let lastMatch = cardViewModels.last?.match, lastMatch.id == currentItem.id {
+            fetchPage(page: currentPage + 1)
         }
     }
 
-    func fetchNextPage() {
+    private func fetchPage(page: Int) {
         guard !isLoadingPage else { return }
         isLoadingPage = true
-        let next = currentPage + 1
-        service.fetch(page: next)
-            .flatMap { [weak self] remote -> AnyPublisher<[Match], Error> in
-                guard let self = self else { return Just([]).setFailureType(to: Error.self).eraseToAnyPublisher() }
-                return self.repo.save(remoteUsers: remote, page: next)
-            }
-            .receive(on: DispatchQueue.main)
-            .sink { [weak self] completion in
-                self?.isLoadingPage = false
-                switch completion {
-                case .failure(let err):
-                    self?.errorMessage = err.localizedDescription
-                    // keep cached items
-                case .finished:
-                    self?.currentPage = next
-                }
-            } receiveValue: { _ in }
-            .store(in: &cancellables)
-    }
 
-    func fetchNextPageInitial() {
-        // used to fetch page 1 initially
-        guard !isLoadingPage else { return }
-        isLoadingPage = true
-        let page = currentPage
         service.fetch(page: page)
-            .flatMap { [weak self] remote -> AnyPublisher<[Match], Error> in
-                guard let self = self else { return Just([]).setFailureType(to: Error.self).eraseToAnyPublisher() }
-                return self.repo.save(remoteUsers: remote, page: page)
+            .flatMap { [weak self] remoteUsers -> AnyPublisher<[Match], Error> in
+                guard let self = self else {
+                    return Fail(error: NSError(domain: "self_nil", code: -1)).eraseToAnyPublisher()
+                }
+                return self.repo.save(remoteUsers: remoteUsers, page: page)
             }
             .receive(on: DispatchQueue.main)
             .sink { [weak self] completion in
-                self?.isLoadingPage = false
+                guard let self = self else { return }
+                self.isLoadingPage = false
                 switch completion {
                 case .failure(let err):
-                    self?.errorMessage = err.localizedDescription
+                    self.errorMessage = err.localizedDescription
                 case .finished:
-                    break
+                    self.currentPage = page
                 }
             } receiveValue: { _ in }
             .store(in: &cancellables)
-    }
-
-    func accept(id: String) {
-        _ = repo.updateStatus(id: id, status: .accepted)
-            .receive(on: DispatchQueue.main)
-            .sink { completion in
-                // handle
-            } receiveValue: { match in
-                // optimistic update handled by CoreData binding
-            }
-    }
-
-    func decline(id: String) {
-        _ = repo.updateStatus(id: id, status: .declined)
-            .receive(on: DispatchQueue.main)
-            .sink { completion in
-            } receiveValue: { match in }
     }
 }
+
