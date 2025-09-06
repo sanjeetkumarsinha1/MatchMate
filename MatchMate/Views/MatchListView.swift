@@ -5,19 +5,32 @@ struct MatchListView: View {
 
     var body: some View {
         NavigationView {
-            content
-                .navigationTitle("MatchMate")
-                .onAppear {
-                    vm.fetchNextPageInitial()
-                }
-                .alert(item: Binding(
-                    get: { vm.errorMessage.map { ErrorWrapper(message: $0) } },
-                    set: { _ in vm.errorMessage = nil })
-                ) { wrapper in
-                    Alert(title: Text("Error"),
-                          message: Text(wrapper.message),
-                          dismissButton: .default(Text("OK")))
-                }
+            ZStack {
+                LinearGradient(
+                    gradient: Gradient(colors: [
+                        Color.purple.opacity(0.7),
+                        Color.blue.opacity(0.7),
+                        Color.pink.opacity(0.6)
+                    ]),
+                    startPoint: .topLeading,
+                    endPoint: .bottomTrailing
+                )
+                .ignoresSafeArea()
+
+                content
+                    .navigationTitle("MatchMate")
+                    .onAppear {
+                        vm.fetchNextPageInitial()
+                    }
+                    .alert(item: Binding(
+                        get: { vm.errorMessage.map { ErrorWrapper(message: $0) } },
+                        set: { _ in vm.errorMessage = nil })
+                    ) { wrapper in
+                        Alert(title: Text("Error"),
+                              message: Text(wrapper.message),
+                              dismissButton: .default(Text("OK")))
+                    }
+            }
         }
     }
 
@@ -26,8 +39,14 @@ struct MatchListView: View {
         if vm.cardViewModels.isEmpty {
             if vm.isLoadingPage {
                 ProgressView("Loading...")
+                    .padding()
+                    .background(.ultraThinMaterial)
+                    .clipShape(RoundedRectangle(cornerRadius: 12))
             } else {
                 Text("No matches. Pull to fetch or toggle online.")
+                    .padding()
+                    .background(.ultraThinMaterial)
+                    .clipShape(RoundedRectangle(cornerRadius: 12))
             }
         } else {
             matchList
@@ -41,6 +60,7 @@ struct MatchListView: View {
                     .onAppear {
                         vm.loadNextPageIfNeeded(currentItem: cardVM.match)
                     }
+                    .listRowBackground(Color.clear)
             }
             if vm.isLoadingPage {
                 HStack { Spacer(); ProgressView(); Spacer() }
@@ -50,6 +70,7 @@ struct MatchListView: View {
         .refreshable {
             vm.fetchNextPageInitial()
         }
+        .scrollContentBackground(.hidden)
     }
 }
 

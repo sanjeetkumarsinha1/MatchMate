@@ -2,7 +2,6 @@ import Foundation
 import Combine
 
 final class MatchListViewModel: ObservableObject {
-    // stable array of card viewmodels used by the List
     @Published var cardViewModels: [MatchCardViewModel] = []
     @Published var isLoadingPage = false
     @Published var errorMessage: String?
@@ -22,7 +21,6 @@ final class MatchListViewModel: ObservableObject {
         fetchNextPageInitial()
     }
 
-    // Bind Core Data -> matches and keep cardViewModels stable (reuse by id)
     private func bindRepository() {
         repo.fetchAll()
             .receive(on: DispatchQueue.main)
@@ -33,30 +31,25 @@ final class MatchListViewModel: ObservableObject {
             .store(in: &cancellables)
     }
 
-    // Reuse existing VMs by id; update match inside VM when available
     private func syncCardViewModels(with matches: [Match]) {
         var existingById = Dictionary(uniqueKeysWithValues: cardViewModels.map { ($0.id, $0) })
         var newList: [MatchCardViewModel] = []
 
         for match in matches {
             if let vm = existingById[match.id] {
-                // update existing VM with new Match model (keeps identity)
                 DispatchQueue.main.async {
                     vm.match = match
                 }
                 newList.append(vm)
                 existingById.removeValue(forKey: match.id)
             } else {
-                // create new VM
                 let vm = MatchCardViewModel(match: match, repo: repo)
                 newList.append(vm)
             }
         }
-        // replace array (preserves VMs that still exist)
         self.cardViewModels = newList
     }
 
-    // Public - reset & fetch page 1
     func fetchNextPageInitial() {
         guard !isLoadingPage else { return }
         isLoadingPage = true
@@ -78,15 +71,12 @@ final class MatchListViewModel: ObservableObject {
                     self.errorMessage = err.localizedDescription
                 }
             } receiveValue: { [weak self] _ in
-                // repo.fetchAll binding will populate cardViewModels
             }
             .store(in: &cancellables)
     }
 
-    // Load next page (pagination)
     func loadNextPageIfNeeded(currentItem: Match) {
         guard canLoadMorePages, !isLoadingPage else { return }
-        // If currentItem is last one, fetch next page
         if let lastMatch = cardViewModels.last?.match, lastMatch.id == currentItem.id {
             fetchPage(page: currentPage + 1)
         }
